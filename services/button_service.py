@@ -1,0 +1,73 @@
+from dataclasses import asdict
+from response_handler import ResponseHandler
+
+class ButtonService(ResponseHandler):
+    def __init__(self, buttonRepository):
+        self.repository = buttonRepository
+
+    async def createButton(self, robot, data, websocket, requestId):
+        state = data.get('state')
+        robotId = robot['id']
+
+        if not isinstance(state, bool):
+            await self.sendErrorResponse(websocket, {"message": "Invalid state: must be a boolean"}, requestId)
+            return
+
+        buttonId = self.repository.save(state, robotId)
+        button = self.repository.findById(buttonId)
+        await self.sendResponse(websocket, asdict(button), requestId)
+
+    async def updateButtonById(self, data, websocket, requestId):
+        buttonId = data.get('id')
+        state = data.get('state')
+
+        if not isinstance(buttonId, int):
+            await self.sendErrorResponse(websocket, {"message": "Button ID is required and must be an integer"}, requestId)
+            return
+
+        if not isinstance(state, bool):
+            await self.sendErrorResponse(websocket, {"message": "Invalid state: must be a boolean"}, requestId)
+            return
+
+        if not self.repository.findById(buttonId):
+            await self.sendErrorResponse(websocket, {"message": "Button ID does not exist"}, requestId)
+            return
+
+        self.repository.updateById(buttonId, state)
+        button = self.repository.findById(buttonId)
+        await self.sendResponse(websocket, asdict(button), requestId)
+
+    async def deleteButton(self, data, websocket, requestId):
+        buttonId = data.get('id')  # Assuming buttons are tied to the robot ID
+
+        if not buttonId or not isinstance(buttonId, int):
+            await self.sendErrorResponse(websocket, {"message": "Servo ID is required and must be an integer"}, requestId)
+            return
+        
+        if not self.repository.findById(buttonId):
+            await self.sendErrorResponse(websocket, {"message": "Button ID does not exist"}, requestId)
+            return
+
+        self.repository.deleteById(buttonId)
+        await self.sendResponse(websocket, {'id': buttonId}, requestId)
+
+    async def getButtonById(self, data, websocket, requestId):
+        buttonId = data.get('id')
+
+        if not isinstance(buttonId, int):
+            await self.sendErrorResponse(websocket, {"message": "Button ID is required and must be an integer"}, requestId)
+            return
+
+        button = self.repository.findById(buttonId)
+        if button:
+            await self.sendResponse(websocket, asdict(button), requestId)
+        else:
+            await self.sendErrorResponse(websocket, {"message": "Button not found"}, requestId)
+
+    async def getAllButtonsByRobotId(self, robot, websocket, requestId):
+        buttons = self.repository.findAllByRobotId(robot.id)
+        payload = {
+            "total_items": len(buttons),
+            "content": [asdict(button) for button in buttons]
+        }
+        await self.sendResponse(websocket, payload, requestId)
