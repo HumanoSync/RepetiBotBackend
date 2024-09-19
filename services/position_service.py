@@ -1,16 +1,10 @@
-from response_handler import ResponseHandler
-from repositories.position_repository import PositionRepository
-from repositories.movement_repository import MovementRepository
+from response_builder import ResponseHandler
 from dataclasses import asdict
-import sqlite3
 
 class PositionService(ResponseHandler):
     def __init__(self, positionRepository, movementRepository):
         self.repository = positionRepository
         self.movementRepository = movementRepository
-        self.positions = []
-        self.executeMovementBoolean = False
-        self.moveToInitialPositionsBoolean = False
 
     def validateAngles(self, angles):
         if not isinstance(angles, list):

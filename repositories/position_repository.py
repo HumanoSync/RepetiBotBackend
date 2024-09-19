@@ -1,5 +1,5 @@
-import json
 from models import Position
+import json
 
 class PositionRepository:
     def __init__(self, db):

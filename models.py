@@ -1,4 +1,20 @@
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
+
+@dataclass
+class Role:
+    id: int
+    name: str
+@dataclass
+class User:
+    id: int
+    name: str
+    role_id: int
+
+@dataclass
+class UserRobot:
+    id: int
+    user_id: int
+    robot_id: int
 
 @dataclass
 class Robot:
@@ -8,6 +24,7 @@ class Robot:
 @dataclass
 class InitialPosition:
     id: int
+    time: int
     angles: list
     robot_id: int
 

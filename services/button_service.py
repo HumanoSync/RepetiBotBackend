@@ -1,13 +1,13 @@
 from dataclasses import asdict
-from response_handler import ResponseHandler
+from response_builder import ResponseHandler
 
 class ButtonService(ResponseHandler):
     def __init__(self, buttonRepository):
         self.repository = buttonRepository
 
-    async def createButton(self, robot, data, websocket, requestId):
+    async def createButton(self, data, websocket, requestId):
         state = data.get('state')
-        robotId = robot['id']
+        robotId = data.get('robot_id')
 
         if not isinstance(state, bool):
             await self.sendErrorResponse(websocket, {"message": "Invalid state: must be a boolean"}, requestId)
@@ -38,7 +38,7 @@ class ButtonService(ResponseHandler):
         await self.sendResponse(websocket, asdict(button), requestId)
 
     async def deleteButton(self, data, websocket, requestId):
-        buttonId = data.get('id')  # Assuming buttons are tied to the robot ID
+        buttonId = data.get('id')  # Assuming buttons are tied to the user ID
 
         if not buttonId or not isinstance(buttonId, int):
             await self.sendErrorResponse(websocket, {"message": "Servo ID is required and must be an integer"}, requestId)
@@ -64,8 +64,9 @@ class ButtonService(ResponseHandler):
         else:
             await self.sendErrorResponse(websocket, {"message": "Button not found"}, requestId)
 
-    async def getAllButtonsByRobotId(self, robot, websocket, requestId):
-        buttons = self.repository.findAllByRobotId(robot.id)
+    async def getAllButtonsByRobotId(self, data, websocket, requestId):
+        robotId = data.get('robot_id')
+        buttons = self.repository.findAllByRobotId(robotId)
         payload = {
             "total_items": len(buttons),
             "content": [asdict(button) for button in buttons]

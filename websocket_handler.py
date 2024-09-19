@@ -1,129 +1,143 @@
 import json
+from container import Container
+
+from controllers.auth_controller import AuthController
+from controllers.robot_controller import RobotController
+from controllers.access_controller import AccessController
+
+from response_builder import JSONRPCResponseBuilder
+from request_builder import JSONRPCRequestBuilder
 
 class WebSocketHandler:
-    def __init__(self, authService, buttonService, servoService, movementService, positionService):
-        self.authService = authService
-        self.buttonService = buttonService
-        self.servoService = servoService
-        self.movementService = movementService
-        self.positionService = positionService
-        #self.videoControl = videoControl
+    def __init__(self):
+        self.container = Container()
 
-    async def handleMessage(self, websocket, path):
+        # Extrae las dependencias desde el contenedor
+        self.authService = self.container.auth_service()
+        self.accessService = self.container.access_service()
+        self.robotService = self.container.robot_service()
+
+        # Controladores inicializados con los servicios necesarios
+        self.authController = AuthController(self.authService)
+        self.robotController = RobotController(self.authService)
+        self.accessController = AccessController(self.authService)
+
+    async def handleMessage(self, websocket):
         async for message in websocket:
             try:
                 data = json.loads(message)
             except json.JSONDecodeError:
                 print('Error al decodificar el mensaje JSON')
-                await self.sendErrorResponse(websocket, {"message": "Invalid JSON"}, None)
+                await self.sendErrorResponse(websocket, -32700, "Invalid JSON", None)
                 continue
             
-            endpoint = data.get('endpoint')
-            method = data.get('method')
-            payload = data.get('payload', {})
-            requestId = data.get('request_id')
-            token = data.get('token')
+            # Usamos el JSONRPCRequestBuilder para construir la solicitud y luego extraer la información
+            try:
+                request = JSONRPCRequestBuilder() \
+                    .set_method(data.get('method')) \
+                    .set_params(data.get('params', {})) \
+                    .set_id(data.get('id')) \
+                    .build()
+            except ValueError as e:
+                await self.sendErrorResponse(websocket, -32600, str(e), None)
+                continue
 
-            if not endpoint or not method:
-                await self.sendErrorResponse(websocket, {"message": "Invalid request"}, requestId)
+            method = request["method"]
+            params = request["params"]  # Parámetros de la solicitud
+            request_id = request["id"]
+            token = params.get("token")  # Extraer el token de los parámetros
+
+            if not method:
+                await self.sendErrorResponse(websocket, -32600, "Invalid Request", request_id)
                 continue
 
             # Primero, manejar rutas de autenticación
-            if endpoint.startswith("/auth"):
-                await self.handleAuthRequests(endpoint, method, payload, websocket, requestId)
-
-            # Verificar autenticación para otros endpoints
-            robot = self.authService.validateToken(token)
-            if not robot:
-                await self.sendErrorResponse(websocket, {"message": "Unauthorized"}, requestId)
-                continue
-
-            # Rutas para Button
-            if endpoint.startswith("/app/buttons"):
-                await self.handleButtonRequests(endpoint, method, robot, payload, websocket, requestId)
-            # Rutas para Servo
-            elif endpoint.startswith("/app/servos"):
-                await self.handleServoRequests(endpoint, method, robot, payload, websocket, requestId)
-            # Rutas para Movements
-            elif endpoint.startswith("/app/movements"):
-                await self.handleMovementRequests(endpoint, method, robot, payload, websocket, requestId)
-            # Rutas para Positions
-            elif endpoint.startswith("/app/positions"):
-                await self.handlePositionRequests(endpoint, method, payload, websocket, requestId)
+            if method.startswith("auth"):
+                await self.authController.handleRequest(method, params, websocket, request_id)
             else:
-                await self.sendErrorResponse(websocket, {"message": "Invalid endpoint"}, requestId)
+                # Primero, intentar validar como un robot
+                robot = self.authService.validateRobotToken(token)
+                if robot:
+                    role_name = "robot"
+                else:
+                # Si no es robot, intentamos como usuario
+                    user = self.authService.validateUserToken(token)
+                    if not user:
+                        await self.sendErrorResponse(websocket, -32000, "Unauthorized", request_id)
+                        continue
+                    role = self.authService.getRoleById(user.role_id)
+                    role_name = role.name
 
-    async def handleAuthRequests(self, endpoint, method, payload, websocket, requestId):
-        if endpoint == "/auth/register" and method == "POST":
-            await self.authService.registerRobot(payload, websocket, requestId)
-        elif endpoint == "/auth/login" and method == "POST":
-            await self.authService.loginRobot(payload, websocket, requestId)
-        else:
-            await self.sendErrorResponse(websocket, {"message": "Invalid authentication request"}, requestId)
+                # Verificar permisos para el endpoint
+                if not self.hasPermission(method, role_name):
+                    await self.sendErrorResponse(websocket, -32000, "Forbidden", request_id)
+                    continue
 
-    async def handleButtonRequests(self, endpoint, method, robot, payload, websocket, requestId):
-        if endpoint == "/app/buttons/create" and method == "POST":
-            await self.buttonService.createButton(robot, payload, websocket, requestId)
-        elif endpoint == "/app/buttons/update" and method == "POST":
-            await self.buttonService.updateButtonById(payload, websocket, requestId)
-        elif endpoint == "/app/buttons/delete" and method == "POST":
-            await self.buttonService.deleteButtonById(payload, websocket, requestId)
-        elif endpoint == "/app/buttons/get" and method == "GET":
-            await self.buttonService.getButtonById(payload, websocket, requestId)
-        elif endpoint == "/app/buttons/getAll" and method == "GET":
-            await self.buttonService.getAllButtonsByRobotId(robot, websocket, requestId)
-        else:
-            await self.sendErrorResponse(websocket, {"message": "Invalid button request"}, requestId)
+                # Rutas para Robots
+                if method.startswith("robot"):
+                    await self.robotController.handleRequest(method, params, websocket, request_id)
+                # Rutas para Access
+                elif method.startswith("access"):
+                    await self.accessController.handleRequest(method, params, websocket, request_id)
+                else:
+                    await self.sendErrorResponse(websocket, -32601, "Method not found", request_id)
 
-    async def handleServoRequests(self, endpoint, method, robot, payload, websocket, requestId):
-        if endpoint == "/app/servos/create" and method == "POST":
-            await self.servoService.createServo(robot, payload, websocket, requestId)
-        elif endpoint == "/app/servos/update" and method == "POST":
-            await self.servoService.updateServoById(payload, websocket, requestId)
-        elif endpoint == "/app/servos/delete" and method == "POST":
-            await self.servoService.deleteServoById(payload, websocket, requestId)
-        elif endpoint == "/app/servos/get" and method == "GET":
-            await self.servoService.getServoById(payload, websocket, requestId)
-        elif endpoint == "/app/servos/getAll" and method == "GET":
-            await self.servoService.getAllServosByRobotId(robot, websocket, requestId)
-        else:
-            await self.sendErrorResponse(websocket, {"message": "Invalid servo request"}, requestId)
+    async def sendErrorResponse(self, websocket, code, message, request_id):
+        # Usar JSONRPCResponseBuilder para construir la respuesta de error
+        error_response = JSONRPCResponseBuilder().set_error(code, message).set_id(request_id).build()
+        await websocket.send(json.dumps(error_response))
 
-    async def handleMovementRequests(self, endpoint, method, robot, payload, websocket, requestId):
-        if endpoint == "/app/movements/create" and method == "POST":
-            await self.movementService.createMovement(robot, payload, websocket, requestId)
-        elif endpoint == "/app/movements/update" and method == "POST":
-            await self.movementService.updateMovementById(robot, payload, websocket, requestId)
-        elif endpoint == "/app/movements/delete" and method == "POST":
-            await self.movementService.deleteMovementById(payload, websocket, requestId)
-        elif endpoint == "/app/movements/get" and method == "GET":
-            await self.movementService.getMovementById(payload, websocket, requestId)
-        elif endpoint == "/app/movements/getAll" and method == "GET":
-            await self.movementService.getAllMovementsByRobotId(robot, websocket, requestId)
-        else:
-            await self.sendErrorResponse(websocket, {"message": "Invalid movement request"}, requestId)
+    async def sendSuccessResponse(self, websocket, result, request_id):
+        # Usar JSONRPCResponseBuilder para construir la respuesta exitosa
+        success_response = JSONRPCResponseBuilder().set_result(result).set_id(request_id).build()
+        await websocket.send(json.dumps(success_response))
 
-    async def handlePositionRequests(self, endpoint, method, payload, websocket, requestId):
-        if endpoint == "/app/positions/create" and method == "POST":
-            await self.positionService.createPosition(payload, websocket, requestId)
-        elif endpoint == "/app/positions/update" and method == "POST":
-            await self.positionService.updatePositionById(payload, websocket, requestId)
-        elif endpoint == "/app/positions/delete" and method == "POST":
-            await self.positionService.deletePositionById(payload, websocket, requestId)
-        elif endpoint == "/app/positions/get" and method == "GET":
-            await self.positionService.getPositionById(payload, websocket, requestId)
-        elif endpoint == "/app/positions/getAll" and method == "GET":
-            await self.positionService.getAllPositionsByMovementId(payload, websocket, requestId)
-        elif endpoint == "/app/positions/moveUp" and method == "POST":
-            await self.positionService.movePositionUpById(payload, websocket, requestId)
-        elif endpoint == "/app/positions/moveDown" and method == "POST":
-            await self.positionService.movePositionDownById(payload, websocket, requestId)
-        else:
-            await self.sendErrorResponse(websocket, {"message": "Invalid position request"}, requestId)
+    def hasPermission(self, method, role_name):
+        # Define role-based access control for "admin" and "user"
+        permissions = {
+            # Permisos para los robots
+            "robots.create": ["admin", "user", "robot"],
+            "robots.update": ["admin", "user", "robot"],
+            "robots.delete": ["admin", "user", "robot"],
+            "robots.get": ["admin", "user", "robot"],
+            "robots.getAll": ["admin", "user", "robot"],
 
-    async def sendErrorResponse(self, websocket, errorMessage, requestId):
-        response = {
-            'request_id': requestId,
-            'error': errorMessage
+            # Permisos para las posiciones iniciales
+            "initial-positions.create": ["admin", "user", "robot"],
+            "initial-positions.update": ["admin", "user", "robot"],
+            "initial-positions.delete": ["admin", "user", "robot"],
+            "initial-positions.get": ["admin", "user", "robot"],
+            "initial-positions.getAll": ["admin", "user", "robot"],
+
+            # Permisos para los botones
+            "buttons.create": ["admin", "user", "robot"],
+            "buttons.update": ["admin", "user", "robot"],
+            "buttons.delete": ["admin", "user", "robot"],
+            "buttons.get": ["admin", "user", "robot"],
+            "buttons.getAll": ["admin", "user", "robot"],
+
+            # Permisos para los servos
+            "servos.create": ["admin", "user", "robot"],
+            "servos.update": ["admin", "user", "robot"],
+            "servos.delete": ["admin", "user", "robot"],
+            "servos.get": ["admin", "user", "robot"],
+            "servos.getAll": ["admin", "user", "robot"],
+
+            # Permisos para los movimientos
+            "movements.create": ["admin", "user", "robot"],
+            "movements.update": ["admin", "user", "robot"],
+            "movements.delete": ["admin", "user", "robot"],
+            "movements.get": ["admin", "user", "robot"],
+            "movements.getAll": ["admin", "user", "robot"],
+
+            # Permisos para las posiciones
+            "positions.create": ["admin", "user", "robot"],
+            "positions.update": ["admin", "user", "robot"],
+            "positions.delete": ["admin", "user", "robot"],
+            "positions.get": ["admin", "user", "robot"],
+            "positions.getAll": ["admin", "user", "robot"],
+            "positions.moveUp": ["admin", "user", "robot"],
+            "positions.moveDown": ["admin", "user", "robot"],
         }
-        await websocket.send(json.dumps(response))
+
+        return role_name in permissions.get(method, [])

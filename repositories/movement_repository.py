@@ -28,12 +28,12 @@ class MovementRepository:
 
     def findById(self, id):
         cursor = self.db.conn.execute(
-            "SELECT id, name FROM movements WHERE id = ?",
-            (id)
+            "SELECT id, name, robot_id FROM movements WHERE id = ?",
+            (id,)
         )
         row = cursor.fetchone()
         if row:
-            return Movement(id=row[0], name=row[1])
+            return Movement(id=row[0], name=row[1], robot_id=row[2])
         return None
 
     def findByNameAndRobotId(self, name, robot_id):

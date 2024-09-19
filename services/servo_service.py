@@ -1,14 +1,14 @@
 from dataclasses import asdict
-from response_handler import ResponseHandler
+from response_builder import ResponseHandler
 
 class ServoService(ResponseHandler):
     def __init__(self, servoRepository):
         self.repository = servoRepository
 
-    async def createServo(self, robot, data, websocket, requestId):
+    async def createServo(self, data, websocket, requestId): 
+        robotId = data.get('robot_id')
         angle = data.get('angle')
-        robotId = robot['id']
-
+        
         if not isinstance(angle, int) or not (0 <= angle <= 180):
             await self.sendErrorResponse(websocket, {"message": "Invalid angle: must be an integer between 0 and 180"}, requestId)
             return
@@ -38,7 +38,7 @@ class ServoService(ResponseHandler):
         await self.sendResponse(websocket, asdict(servo), requestId)
 
     async def deleteServoById(self, data, websocket, requestId):
-        servoId = data.get('id')  # Assuming servos are tied to the robot ID
+        servoId = data.get('id')  # Assuming servos are tied to the user ID
 
         if not servoId or not isinstance(servoId, int):
             await self.sendErrorResponse(websocket, {"message": "Servo ID is required and must be an integer"}, requestId)
@@ -64,8 +64,8 @@ class ServoService(ResponseHandler):
         else:
             await self.sendErrorResponse(websocket, {"message": "Servo not found"}, requestId)
 
-    async def getAllServosByRobotId(self, robot, websocket, requestId):
-        robotId = robot['id']
+    async def getAllServosByRobotId(self, data, websocket, requestId):
+        robotId = data.get('robot_id')
         servos = self.repository.findAllByRobotId(robotId)
         payload = {
             "total_items": len(servos),

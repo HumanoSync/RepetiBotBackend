@@ -1,4 +1,3 @@
-import json
 from models import Servo
 
 class ServoRepository:

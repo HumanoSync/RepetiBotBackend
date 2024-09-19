@@ -1,4 +1,4 @@
-from response_handler import ResponseHandler
+from response_builder import ResponseHandler
 from repositories.movement_repository import MovementRepository
 from dataclasses import asdict
 
@@ -6,8 +6,8 @@ class MovementService(ResponseHandler):
     def __init__(self, movementRepository):
         self.repository = movementRepository
 
-    async def createMovement(self, robot, data, websocket, requestId):
-        robotId = robot['id']
+    async def createMovement(self, data, websocket, requestId):
+        robotId = data.get('robot_id')
         name = data.get('name')
         
         if not name:
@@ -22,8 +22,8 @@ class MovementService(ResponseHandler):
         movement = self.repository.findById(movementId)
         await self.sendResponse(websocket, asdict(movement), requestId)
 
-    async def updateMovementById(self, robot, data, websocket, requestId):
-        robotId = robot['id']
+    async def updateMovementById(self, data, websocket, requestId):
+        robotId = data.get('robot_id')
         movementId = data.get('id')
         name = data.get('name')
 
@@ -56,7 +56,7 @@ class MovementService(ResponseHandler):
             return
 
         if not self.repository.findById(movementId):
-            await self.sendErrorResponse(websocket, {"message": "Movement ID does not exist for this robot"}, requestId)
+            await self.sendErrorResponse(websocket, {"message": "Movement ID does not exist for this user"}, requestId)
             return
 
         self.repository.deleteById(movementId)
@@ -73,10 +73,10 @@ class MovementService(ResponseHandler):
         if movement:
             await self.sendResponse(websocket, asdict(movement), requestId)
         else:
-            await self.sendErrorResponse(websocket, {"message": "Movement not found for this robot"}, requestId)
+            await self.sendErrorResponse(websocket, {"message": "Movement not found for this user"}, requestId)
 
-    async def getAllMovementsByRobotId(self, robot, websocket, requestId):
-        robotId = robot['id']
+    async def getAllMovementsByRobotId(self, data, websocket, requestId):
+        robotId = data.get('robot_id')
         movements = self.repository.findAllByRobotId(robotId)
         payload = {
             "total_items": len(movements),
