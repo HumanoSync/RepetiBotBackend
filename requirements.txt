@@ -1,0 +1,8 @@
+fastapi
+paho-mqtt
+pyjwt
+python-dotenv
+sqlmodel
+uvicorn
+mysql-connector-python
+dependency-injector
